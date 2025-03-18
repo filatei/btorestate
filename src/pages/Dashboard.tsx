@@ -1,19 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import { collection, query, where, onSnapshot } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, doc, getDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useAuth } from '../contexts/AuthContext';
+import { useEstate } from '../contexts/EstateContext';
 import { Home, Users, Bell, MessageSquare, CreditCard, Check } from 'lucide-react';
 import Chat from '../components/Chat';
 import Notifications from '../components/Notifications';
 import PaymentModal from '../components/PaymentModal';
 import { format } from 'date-fns';
-
-interface Estate {
-  id: string;
-  name: string;
-  type: string;
-  address: string;
-}
+import { useNavigate } from 'react-router-dom';
 
 interface ServiceCharge {
   id: string;
@@ -35,7 +30,8 @@ interface ServiceCharge {
 
 const Dashboard = () => {
   const { currentUser } = useAuth();
-  const [estates, setEstates] = useState<Estate[]>([]);
+  const { selectedEstate, isLoading: estateLoading } = useEstate();
+  const navigate = useNavigate();
   const [serviceCharges, setServiceCharges] = useState<ServiceCharge[]>([]);
   const [paidCharges, setPaidCharges] = useState<ServiceCharge[]>([]);
   const [onlineUsers, setOnlineUsers] = useState<number>(0);
@@ -44,46 +40,17 @@ const Dashboard = () => {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    if (!currentUser) return;
+    if (!currentUser || !selectedEstate) {
+      if (!estateLoading) {
+        navigate('/estates');
+      }
+      return;
+    }
 
-    const estatesQuery = query(
-      collection(db, 'estates'),
-      where('members', 'array-contains', currentUser.uid)
-    );
-    
-    const unsubscribeEstates = onSnapshot(estatesQuery, (snapshot) => {
-      const estateData = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      })) as Estate[];
-      setEstates(estateData);
-      setIsLoading(false);
-    });
-
-    const presenceRef = collection(db, 'presence');
-    const onlineUsersQuery = query(
-      presenceRef,
-      where('online', '==', true)
-    );
-
-    const unsubscribePresence = onSnapshot(onlineUsersQuery, (snapshot) => {
-      setOnlineUsers(snapshot.size);
-    });
-
-    return () => {
-      unsubscribeEstates();
-      unsubscribePresence();
-    };
-  }, [currentUser]);
-
-  useEffect(() => {
-    if (!currentUser || estates.length === 0) return;
-
-    const estateIds = estates.map(estate => estate.id);
-
+    // Query service charges for the selected estate
     const chargesQuery = query(
       collection(db, 'serviceCharges'),
-      where('estateId', 'in', estateIds)
+      where('estateId', '==', selectedEstate.id)
     );
 
     const unsubscribeCharges = onSnapshot(chargesQuery, (snapshot) => {
@@ -101,12 +68,25 @@ const Dashboard = () => {
 
       setServiceCharges(pending);
       setPaidCharges(paid);
+      setIsLoading(false);
+    });
+
+    // Query online users for the selected estate
+    const presenceQuery = query(
+      collection(db, 'presence'),
+      where('estateId', '==', selectedEstate.id),
+      where('online', '==', true)
+    );
+
+    const unsubscribePresence = onSnapshot(presenceQuery, (snapshot) => {
+      setOnlineUsers(snapshot.size);
     });
 
     return () => {
       unsubscribeCharges();
+      unsubscribePresence();
     };
-  }, [currentUser, estates]);
+  }, [currentUser, selectedEstate, estateLoading, navigate]);
 
   const handlePaymentClick = (charge: ServiceCharge) => {
     setSelectedCharge(charge);
@@ -124,12 +104,11 @@ const Dashboard = () => {
       const timestamp = date.seconds ? new Date(date.seconds * 1000) : new Date(date);
       return format(timestamp, 'MMM d, yyyy');
     } catch (error) {
-      console.error('Error formatting date:', error);
       return 'Invalid Date';
     }
   };
 
-  if (isLoading) {
+  if (isLoading || estateLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
@@ -137,30 +116,41 @@ const Dashboard = () => {
     );
   }
 
+  if (!selectedEstate) {
+    return (
+      <div className="max-w-7xl mx-auto px-4 py-8">
+        <div className="text-center">
+          <h2 className="text-2xl font-semibold text-gray-900 mb-4">No Estate Selected</h2>
+          <p className="text-gray-600 mb-4">Please select or create an estate to continue.</p>
+          <button
+            onClick={() => navigate('/estates')}
+            className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700"
+          >
+            <Home className="h-5 w-5 mr-2" />
+            Go to Estates
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <div className="max-w-7xl mx-auto px-4 py-8">
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        {/* Estates Section */}
+        {/* Estate Info Section */}
         <div className="bg-white rounded-lg shadow p-6">
           <div className="flex items-center mb-4">
             <Home className="h-6 w-6 text-indigo-600" />
-            <h2 className="ml-2 text-xl font-semibold">My Estates</h2>
+            <h2 className="ml-2 text-xl font-semibold">{selectedEstate.name}</h2>
           </div>
-          {estates.length === 0 ? (
-            <p className="text-gray-500 text-center py-4">No estates found</p>
-          ) : (
-            <div className="space-y-4">
-              {estates.map(estate => (
-                <div key={estate.id} className="p-4 border rounded-lg hover:border-indigo-500 transition-colors">
-                  <h3 className="font-medium text-lg">{estate.name}</h3>
-                  <p className="text-sm text-gray-500">{estate.address}</p>
-                  <span className="inline-block mt-2 px-2 py-1 bg-gray-100 rounded-full text-sm text-gray-700">
-                    {estate.type}
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
+          <div className="space-y-2">
+            <p className="text-gray-600">{selectedEstate.address}</p>
+            <p className="text-sm text-gray-500">Type: {selectedEstate.type}</p>
+            <p className="text-sm text-gray-500">Members: {selectedEstate.memberCount}</p>
+            <p className="text-sm text-gray-500">
+              Created: {formatDate(selectedEstate.createdAt)}
+            </p>
+          </div>
         </div>
 
         {/* Payments Section */}
@@ -204,7 +194,7 @@ const Dashboard = () => {
           )}
         </div>
 
-        {/* Online Users & Chat Section */}
+        {/* Community Section */}
         <div className="space-y-6">
           <div className="bg-white rounded-lg shadow p-6">
             <div className="flex items-center justify-between mb-4">
@@ -219,14 +209,14 @@ const Dashboard = () => {
                 </span>
               </div>
             </div>
-            <Chat />
+            <Chat estateId={selectedEstate.id} />
           </div>
           
           <Notifications />
         </div>
       </div>
 
-      {/* Paid Payments Table */}
+      {/* Payment History */}
       <div className="mt-8 bg-white rounded-lg shadow p-6">
         <div className="flex items-center mb-4">
           <Check className="h-6 w-6 text-green-600" />

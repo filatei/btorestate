@@ -11,6 +11,7 @@ import {
   serverTimestamp,
   onSnapshot
 } from 'firebase/firestore';
+import { getStorage } from 'firebase/storage';
 
 // Ensure we're using the correct localhost URL format
 const getAuthDomain = () => {
@@ -30,19 +31,11 @@ const firebaseConfig = {
   appId: import.meta.env.VITE_FIREBASE_APP_ID
 };
 
+// Initialize Firebase
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 export const db = getFirestore(app);
-
-// Enable offline persistence
-enableIndexedDbPersistence(db)
-  .catch((err) => {
-    if (err.code === 'failed-precondition') {
-      console.log('Multiple tabs open, persistence can only be enabled in one tab at a time.');
-    } else if (err.code === 'unimplemented') {
-      console.log('The current browser doesn\'t support all of the features required to enable persistence');
-    }
-  });
+export const storage = getStorage(app);
 
 // Initialize presence system
 const presenceRef = collection(db, 'presence');
@@ -70,5 +63,14 @@ onAuthStateChanged(auth, async (user) => {
         lastSeen: serverTimestamp(),
       });
     });
+  }
+});
+
+// Enable offline persistence
+enableIndexedDbPersistence(db).catch((err) => {
+  if (err.code === 'failed-precondition') {
+    console.log('Multiple tabs open, persistence can only be enabled in one tab at a time.');
+  } else if (err.code === 'unimplemented') {
+    console.log('The current browser doesn\'t support all of the features required to enable persistence');
   }
 });

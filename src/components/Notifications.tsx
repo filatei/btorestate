@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { collection, query, where, orderBy, limit, onSnapshot, updateDoc, doc } from 'firebase/firestore';
+import { collection, query, where, orderBy, limit, onSnapshot, updateDoc, doc, getDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useAuth } from '../contexts/AuthContext';
-import { Bell, DollarSign, MessageSquare, Home, Check } from 'lucide-react';
+import { Bell, DollarSign, MessageSquare, Home, Check, Users } from 'lucide-react';
 import { format } from 'date-fns';
+import { toast } from 'react-hot-toast';
 
 interface Notification {
   id: string;
@@ -13,9 +14,16 @@ interface Notification {
   createdAt: any;
   read: boolean;
   userId: string;
+  actionType?: string;
+  estateId?: string;
+  inviteToken?: string;
 }
 
-const NotificationIcon = ({ type }: { type: string }) => {
+const NotificationIcon = ({ type, actionType }: { type: string; actionType?: string }) => {
+  if (actionType === 'invitation') {
+    return <Users className="h-5 w-5 text-indigo-500" />;
+  }
+  
   switch (type) {
     case 'payment':
       return <DollarSign className="h-5 w-5 text-green-500" />;
@@ -80,6 +88,51 @@ const Notifications = () => {
     }
   };
 
+  const handleInviteResponse = async (notification: any, accept: boolean) => {
+    if (!notification.estateId || !notification.inviteToken) return;
+
+    try {
+      const estateRef = doc(db, 'estates', notification.estateId);
+      const estateDoc = await getDoc(estateRef);
+      
+      if (!estateDoc.exists()) {
+        toast.error('Estate not found');
+        return;
+      }
+
+      const estateData = estateDoc.data();
+      const inviteTokens = estateData.inviteTokens || {};
+      
+      if (inviteTokens[currentUser?.uid]?.token !== notification.inviteToken) {
+        toast.error('Invalid invitation token');
+        return;
+      }
+
+      if (accept) {
+        await updateDoc(estateRef, {
+          members: [...estateData.members, currentUser?.uid],
+          memberCount: estateData.memberCount + 1,
+          invitedUsers: estateData.invitedUsers.filter((id: string) => id !== currentUser?.uid),
+          [`inviteTokens.${currentUser?.uid}`]: null
+        });
+        toast.success('Successfully joined the estate');
+      } else {
+        await updateDoc(estateRef, {
+          invitedUsers: estateData.invitedUsers.filter((id: string) => id !== currentUser?.uid),
+          [`inviteTokens.${currentUser?.uid}`]: null
+        });
+        toast.success('Invitation declined');
+      }
+
+      // Mark notification as read
+      const notificationRef = doc(db, 'notifications', notification.id);
+      await updateDoc(notificationRef, { read: true });
+    } catch (error) {
+      console.error('Error handling invitation:', error);
+      toast.error('Failed to process invitation');
+    }
+  };
+
   return (
     <div className="bg-white rounded-lg shadow">
       <div className="p-4 border-b">
@@ -116,7 +169,7 @@ const Notifications = () => {
               className={`p-4 ${notification.read ? 'bg-white' : 'bg-indigo-50'} cursor-pointer hover:bg-gray-50 transition-colors duration-150`}
             >
               <div className="flex items-start space-x-3">
-                <NotificationIcon type={notification.type} />
+                <NotificationIcon type={notification.type} actionType={notification.actionType} />
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium text-gray-900">
                     {notification.title}
@@ -124,6 +177,28 @@ const Notifications = () => {
                   <p className="text-sm text-gray-500">
                     {notification.message}
                   </p>
+                  {notification.actionType === 'invitation' && !notification.read && (
+                    <div className="mt-2 flex space-x-2">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleInviteResponse(notification, true);
+                        }}
+                        className="px-3 py-1 bg-green-600 text-white rounded-md text-sm hover:bg-green-700"
+                      >
+                        Accept
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleInviteResponse(notification, false);
+                        }}
+                        className="px-3 py-1 bg-red-600 text-white rounded-md text-sm hover:bg-red-700"
+                      >
+                        Decline
+                      </button>
+                    </div>
+                  )}
                   <p className="text-xs text-gray-400 mt-1">
                     {format(notification.createdAt?.toDate(), 'MMM d, yyyy h:mm a')}
                   </p>

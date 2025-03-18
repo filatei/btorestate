@@ -13,7 +13,11 @@ interface Message {
   createdAt: any;
 }
 
-const Chat = () => {
+interface ChatProps {
+  estateId: string;
+}
+
+const Chat: React.FC<ChatProps> = ({ estateId }) => {
   const { currentUser } = useAuth();
   const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState('');
@@ -25,8 +29,10 @@ const Chat = () => {
   };
 
   useEffect(() => {
+    if (!estateId) return;
+
     const messagesQuery = query(
-      collection(db, 'messages'),
+      collection(db, `estates/${estateId}/messages`),
       orderBy('createdAt', 'desc'),
       limit(50)
     );
@@ -43,15 +49,15 @@ const Chat = () => {
     });
 
     return () => unsubscribe();
-  }, []);
+  }, [estateId]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newMessage.trim() || !currentUser) return;
+    if (!newMessage.trim() || !currentUser || !estateId) return;
 
     setIsLoading(true);
     try {
-      await addDoc(collection(db, 'messages'), {
+      await addDoc(collection(db, `estates/${estateId}/messages`), {
         text: newMessage.trim(),
         userId: currentUser.uid,
         userName: currentUser.displayName,
@@ -119,6 +125,6 @@ const Chat = () => {
       </form>
     </div>
   );
-}
+};
 
 export default Chat;
