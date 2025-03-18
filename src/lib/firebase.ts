@@ -1,16 +1,6 @@
 import { initializeApp } from 'firebase/app';
-import { getAuth, onAuthStateChanged } from 'firebase/auth';
-import { 
-  getFirestore, 
-  enableIndexedDbPersistence,
-  collection,
-  query,
-  where,
-  doc,
-  setDoc,
-  serverTimestamp,
-  onSnapshot
-} from 'firebase/firestore';
+import { getAuth } from 'firebase/auth';
+import { getFirestore, enableIndexedDbPersistence } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
 
 // Ensure we're using the correct localhost URL format
@@ -33,38 +23,11 @@ const firebaseConfig = {
 
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
+
+// Initialize services
 export const auth = getAuth(app);
 export const db = getFirestore(app);
 export const storage = getStorage(app);
-
-// Initialize presence system
-const presenceRef = collection(db, 'presence');
-
-onAuthStateChanged(auth, async (user) => {
-  if (user) {
-    const userPresenceRef = doc(presenceRef, user.uid);
-    
-    // Set initial presence
-    await setDoc(userPresenceRef, {
-      userId: user.uid,
-      displayName: user.displayName,
-      photoURL: user.photoURL,
-      online: true,
-      lastSeen: serverTimestamp(),
-    });
-
-    // Update presence when window closes or user navigates away
-    window.addEventListener('beforeunload', async () => {
-      await setDoc(userPresenceRef, {
-        userId: user.uid,
-        displayName: user.displayName,
-        photoURL: user.photoURL,
-        online: false,
-        lastSeen: serverTimestamp(),
-      });
-    });
-  }
-});
 
 // Enable offline persistence
 enableIndexedDbPersistence(db).catch((err) => {

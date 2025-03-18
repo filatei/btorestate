@@ -4,6 +4,7 @@ import { Building2, LogOut, User, Home, Shield, Bell, CreditCard } from 'lucide-
 import { useAuth } from '../contexts/AuthContext';
 import { collection, query, where, getDocs, onSnapshot } from 'firebase/firestore';
 import { db } from '../lib/firebase';
+import toast from 'react-hot-toast';
 
 const Navbar = () => {
   const { currentUser, signOut } = useAuth();
@@ -60,8 +61,10 @@ const Navbar = () => {
     try {
       await signOut();
       navigate('/login');
+      toast.success('Signed out successfully');
     } catch (error) {
       console.error('Failed to sign out:', error);
+      toast.error('Failed to sign out');
     }
   };
 
@@ -164,7 +167,7 @@ const Navbar = () => {
           <span className="text-lg font-semibold text-gray-900">Torestate</span>
           <span className="text-xs text-gray-500 mb-1">Simplifying Estate Management</span>
         </div>
-        <div className="grid grid-cols-5 h-16">
+        <div className="grid grid-cols-6 h-16">
           <Link
             to="/dashboard"
             className={`flex flex-col items-center justify-center ${
@@ -229,6 +232,14 @@ const Navbar = () => {
             <User className="h-6 w-6" />
             <span className="text-xs mt-1">Profile</span>
           </Link>
+
+          <button
+            onClick={handleSignOut}
+            className="flex flex-col items-center justify-center text-gray-500 hover:text-indigo-600"
+          >
+            <LogOut className="h-6 w-6" />
+            <span className="text-xs mt-1">Logout</span>
+          </button>
         </div>
       </nav>
 

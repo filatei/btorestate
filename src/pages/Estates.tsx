@@ -71,6 +71,7 @@ const Estates = () => {
   const [estates, setEstates] = useState<Estate[]>([]);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showMembersModal, setShowMembersModal] = useState(false);
+  const [showChargeModal, setShowChargeModal] = useState(false);
   const [selectedEstate, setSelectedEstate] = useState<Estate | null>(null);
   const [members, setMembers] = useState<Member[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -80,6 +81,12 @@ const Estates = () => {
     name: '',
     address: '',
     type: 'residential'
+  });
+  const [newCharge, setNewCharge] = useState({
+    title: '',
+    amount: 0,
+    dueDate: '',
+    description: ''
   });
 
   useEffect(() => {
@@ -215,6 +222,52 @@ const Estates = () => {
     } catch (error) {
       console.error('Error updating admin status:', error);
       toast.error('Failed to update admin status');
+    }
+  };
+
+  const handleCreateCharge = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedEstate || !currentUser) return;
+
+    // Check if user is an admin
+    if (!selectedEstate.admins?.includes(currentUser.uid)) {
+      toast.error('Only admins can create service charges');
+      return;
+    }
+
+    try {
+      const charge = {
+        estateId: selectedEstate.id,
+        ...newCharge,
+        status: 'pending',
+        createdAt: serverTimestamp(),
+        createdBy: currentUser.uid
+      };
+
+      await addDoc(collection(db, 'serviceCharges'), charge);
+
+      // Create notifications for all estate members
+      const notifications = selectedEstate.members.map(memberId => ({
+        userId: memberId,
+        type: 'payment',
+        title: 'New Service Charge',
+        message: `A new service charge of ₦${newCharge.amount.toLocaleString()} has been added to ${selectedEstate.name}`,
+        read: false,
+        createdAt: serverTimestamp()
+      }));
+
+      await Promise.all(
+        notifications.map(notification =>
+          addDoc(collection(db, 'notifications'), notification)
+        )
+      );
+
+      setShowChargeModal(false);
+      setNewCharge({ title: '', amount: 0, dueDate: '', description: '' });
+      toast.success('Service charge created successfully');
+    } catch (error) {
+      console.error('Error creating service charge:', error);
+      toast.error('Failed to create service charge');
     }
   };
 
@@ -365,12 +418,25 @@ const Estates = () => {
                   View Dashboard
                 </button>
                 {isAdmin && (
-                  <button
-                    onClick={() => navigate('/admin')}
-                    className="px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50"
-                  >
-                    <Shield className="h-5 w-5 text-gray-500" />
-                  </button>
+                  <>
+                    <button
+                      onClick={() => {
+                        setSelectedEstate(estate);
+                        setShowChargeModal(true);
+                      }}
+                      className="px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50"
+                      title="Create Service Charge"
+                    >
+                      <CreditCard className="h-5 w-5 text-gray-500" />
+                    </button>
+                    <button
+                      onClick={() => navigate('/admin')}
+                      className="px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50"
+                      title="Admin Panel"
+                    >
+                      <Shield className="h-5 w-5 text-gray-500" />
+                    </button>
+                  </>
                 )}
               </div>
             </div>
@@ -460,6 +526,88 @@ const Estates = () => {
                   className="px-4 py-2 bg-indigo-600 text-white rounded-md text-sm font-medium hover:bg-indigo-700"
                 >
                   Create Estate
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Service Charge Modal */}
+      {showChargeModal && selectedEstate && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-xl font-semibold">Create Service Charge</h2>
+              <button
+                onClick={() => setShowChargeModal(false)}
+                className="text-gray-500 hover:text-gray-700"
+              >
+                <X className="h-6 w-6" />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateCharge}>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Title</label>
+                  <input
+                    type="text"
+                    value={newCharge.title}
+                    onChange={(e) => setNewCharge({ ...newCharge, title: e.target.value })}
+                    className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Amount (₦)</label>
+                  <input
+                    type="number"
+                    value={newCharge.amount}
+                    onChange={(e) => setNewCharge({ ...newCharge, amount: Number(e.target.value) })}
+                    className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                    min="0"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Due Date</label>
+                  <input
+                    type="date"
+                    value={newCharge.dueDate}
+                    onChange={(e) => setNewCharge({ ...newCharge, dueDate: e.target.value })}
+                    className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Description</label>
+                  <textarea
+                    value={newCharge.description}
+                    onChange={(e) => setNewCharge({ ...newCharge, description: e.target.value })}
+                    className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                    rows={3}
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="mt-6 flex justify-end space-x-3">
+                <button
+                  type="button"
+                  onClick={() => setShowChargeModal(false)}
+                  className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 bg-indigo-600 text-white rounded-md text-sm font-medium hover:bg-indigo-700"
+                >
+                  Create Charge
                 </button>
               </div>
             </form>

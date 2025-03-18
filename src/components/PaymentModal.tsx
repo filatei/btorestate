@@ -1,9 +1,9 @@
 import React, { useState, useRef } from 'react';
-import { CreditCard, Check, Loader2, Upload, X, Image as ImageIcon } from 'lucide-react';
+import { CreditCard, Check, Loader2, Upload, X, Image as ImageIcon, CreditCard as PaystackIcon, Banknote } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
-import { doc, updateDoc, getDoc, addDoc, collection, serverTimestamp, Timestamp, runTransaction } from 'firebase/firestore';
-import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { db } from '../lib/firebase';
+import { doc, updateDoc, addDoc, collection, serverTimestamp, Timestamp, runTransaction } from 'firebase/firestore';
+import { storage, db } from '../lib/firebase';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import toast from 'react-hot-toast';
 
 interface PaymentModalProps {
@@ -19,10 +19,6 @@ interface PaymentModalProps {
   onPaymentSuccess: () => void;
 }
 
-const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
-const MAX_UPLOAD_RETRIES = 3;
-const RETRY_DELAY = 1000; // 1 second
-
 const PaymentModal: React.FC<PaymentModalProps> = ({
   isOpen,
   onClose,
@@ -34,14 +30,21 @@ const PaymentModal: React.FC<PaymentModalProps> = ({
   const [paymentAmount, setPaymentAmount] = useState(charge.amount - (charge.paidAmount || 0));
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [paymentMethod, setPaymentMethod] = useState<'manual' | 'paystack' | 'test'>('manual');
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const uploadRetryCount = useRef(0);
+
+  const handlePaymentComplete = (amount: number) => {
+    setIsProcessing(false);
+    onClose();
+    onPaymentSuccess();
+    toast.success(`Payment of ₦${amount.toLocaleString()} successful`);
+  };
 
   const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
 
-    if (file.size > MAX_FILE_SIZE) {
+    if (file.size > 5 * 1024 * 1024) {
       toast.error('File size must be less than 5MB');
       return;
     }
@@ -115,31 +118,101 @@ const PaymentModal: React.FC<PaymentModalProps> = ({
   };
 
   const uploadImage = async (file: Blob): Promise<string> => {
-    const storage = getStorage();
-    const fileName = `receipts/${charge.estateId}/${currentUser?.uid}/${Date.now()}_${Math.random().toString(36).substring(7)}.jpg`;
-    const fileRef = ref(storage, fileName);
-
     try {
-      await uploadBytes(fileRef, file);
+      const timestamp = Date.now();
+      const randomString = Math.random().toString(36).substring(7);
+      const fileName = `receipts/${charge.estateId}/${currentUser?.uid}/${timestamp}_${randomString}.jpg`;
+      const fileRef = ref(storage, fileName);
+
+      // Convert Blob to File with proper type
+      const imageFile = new File([file], fileName, { type: 'image/jpeg' });
+      
+      // Upload file
+      await uploadBytes(fileRef, imageFile);
       return await getDownloadURL(fileRef);
     } catch (error) {
-      if (uploadRetryCount.current < MAX_UPLOAD_RETRIES) {
-        uploadRetryCount.current++;
-        await new Promise(resolve => setTimeout(resolve, RETRY_DELAY * uploadRetryCount.current));
-        return uploadImage(file);
-      }
-      throw error;
+      console.error('Upload error:', error);
+      throw new Error('Failed to upload image');
     }
   };
 
-  const handleUploadReceipt = async () => {
+  const handleTestPayment = async () => {
+    if (!currentUser) return;
+    setIsProcessing(true);
+    const toastId = toast.loading('Processing test payment...');
+
+    try {
+      await runTransaction(db, async (transaction) => {
+        const chargeRef = doc(db, 'serviceCharges', charge.id);
+        const chargeDoc = await transaction.get(chargeRef);
+        
+        if (!chargeDoc.exists()) {
+          throw new Error('Payment charge not found');
+        }
+
+        const chargeData = chargeDoc.data();
+        const currentPaidAmount = chargeData.paidAmount || 0;
+
+        if (currentPaidAmount + paymentAmount > charge.amount) {
+          throw new Error('Payment amount exceeds remaining balance');
+        }
+
+        const newPaidAmount = currentPaidAmount + paymentAmount;
+        const isFullyPaid = newPaidAmount >= charge.amount;
+        const now = Timestamp.now();
+
+        const paymentHistory = chargeData.paymentHistory || [];
+        paymentHistory.push({
+          amount: paymentAmount,
+          date: now,
+          userId: currentUser.uid,
+          method: 'test',
+          status: 'success'
+        });
+
+        transaction.update(chargeRef, {
+          paidAmount: newPaidAmount,
+          status: isFullyPaid ? 'paid' : 'partial',
+          lastPaymentDate: now,
+          paymentMethod: 'test',
+          paymentHistory
+        });
+
+        // Create notification
+        const notificationRef = doc(collection(db, 'notifications'));
+        transaction.set(notificationRef, {
+          userId: charge.estateId,
+          type: 'payment',
+          title: 'Test Payment Received',
+          message: `A test payment of ₦${paymentAmount.toLocaleString()} has been processed for ${charge.title}`,
+          read: false,
+          createdAt: now
+        });
+      });
+
+      toast.success('Test payment processed successfully', { id: toastId });
+      handlePaymentComplete(paymentAmount);
+    } catch (error: any) {
+      console.error('Error processing test payment:', error);
+      toast.error(error.message || 'Failed to process test payment', { id: toastId });
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handlePaystackPayment = async () => {
+    toast.error('Paystack integration coming soon!');
+  };
+
+  const handleUploadReceipt = async (e: React.FormEvent) => {
+    e.preventDefault();
     if (!selectedFile || !currentUser || isProcessing) return;
 
     setIsProcessing(true);
-    uploadRetryCount.current = 0;
+    const toastId = toast.loading('Processing payment...');
 
     try {
-      // Compress and upload image first
+      // Compress and upload image
       const compressedImage = await compressImage(selectedFile);
       const downloadURL = await uploadImage(compressedImage);
 
@@ -199,21 +272,14 @@ const PaymentModal: React.FC<PaymentModalProps> = ({
         });
       });
 
-      toast.success('Payment receipt uploaded successfully');
-      handlePaymentSuccess(paymentAmount);
+      toast.success('Payment receipt uploaded successfully', { id: toastId });
+      handlePaymentComplete(paymentAmount);
     } catch (error: any) {
       console.error('Error processing payment:', error);
-      toast.error(error.message || 'Failed to process payment');
+      toast.error(error.message || 'Failed to process payment', { id: toastId });
     } finally {
       setIsProcessing(false);
     }
-  };
-
-  const handlePaymentSuccess = (amount: number) => {
-    setIsProcessing(false);
-    onPaymentSuccess();
-    onClose();
-    toast.success(`Payment of ₦${amount.toLocaleString()} successful`);
   };
 
   if (!isOpen) return null;
@@ -260,79 +326,166 @@ const PaymentModal: React.FC<PaymentModalProps> = ({
 
         <div className="mb-6">
           <label className="block text-sm font-medium text-gray-700 mb-2">
-            Upload Receipt
+            Payment Method
           </label>
-          <div className="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-gray-300 border-dashed rounded-md">
-            <div className="space-y-1 text-center">
-              {previewUrl ? (
-                <div className="relative">
-                  <img
-                    src={previewUrl}
-                    alt="Receipt preview"
-                    className="mx-auto h-32 w-auto object-contain"
-                  />
-                  <button
-                    onClick={() => {
-                      setSelectedFile(null);
-                      setPreviewUrl(null);
-                    }}
-                    className="absolute top-0 right-0 p-1 bg-red-500 text-white rounded-full"
-                  >
-                    <X className="h-4 w-4" />
-                  </button>
-                </div>
-              ) : (
-                <>
-                  <ImageIcon className="mx-auto h-12 w-12 text-gray-400" />
-                  <div className="flex text-sm text-gray-600">
-                    <label
-                      htmlFor="file-upload"
-                      className="relative cursor-pointer bg-white rounded-md font-medium text-indigo-600 hover:text-indigo-500 focus-within:outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-indigo-500"
-                    >
-                      <span>Upload a file</span>
-                      <input
-                        id="file-upload"
-                        ref={fileInputRef}
-                        type="file"
-                        accept="image/*"
-                        onChange={handleFileSelect}
-                        className="sr-only"
-                      />
-                    </label>
-                    <p className="pl-1">or drag and drop</p>
-                  </div>
-                  <p className="text-xs text-gray-500">PNG, JPG up to 5MB</p>
-                </>
-              )}
-            </div>
+          <div className="grid grid-cols-3 gap-4">
+            <button
+              onClick={() => setPaymentMethod('manual')}
+              className={`p-4 border rounded-lg flex flex-col items-center justify-center ${
+                paymentMethod === 'manual'
+                  ? 'border-indigo-600 bg-indigo-50'
+                  : 'border-gray-300 hover:bg-gray-50'
+              }`}
+            >
+              <Upload className="h-6 w-6 mb-2" />
+              <span className="text-sm">Manual</span>
+            </button>
+            <button
+              onClick={() => setPaymentMethod('paystack')}
+              className={`p-4 border rounded-lg flex flex-col items-center justify-center ${
+                paymentMethod === 'paystack'
+                  ? 'border-indigo-600 bg-indigo-50'
+                  : 'border-gray-300 hover:bg-gray-50'
+              }`}
+            >
+              <PaystackIcon className="h-6 w-6 mb-2" />
+              <span className="text-sm">Paystack</span>
+            </button>
+            <button
+              onClick={() => setPaymentMethod('test')}
+              className={`p-4 border rounded-lg flex flex-col items-center justify-center ${
+                paymentMethod === 'test'
+                  ? 'border-indigo-600 bg-indigo-50'
+                  : 'border-gray-300 hover:bg-gray-50'
+              }`}
+            >
+              <Banknote className="h-6 w-6 mb-2" />
+              <span className="text-sm">Test Pay</span>
+            </button>
           </div>
         </div>
 
-        <button
-          onClick={handleUploadReceipt}
-          disabled={!selectedFile || isProcessing || paymentAmount <= 0}
-          className="w-full p-4 mb-4 bg-indigo-600 text-white rounded-lg flex items-center justify-center hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          {isProcessing ? (
-            <>
-              <Loader2 className="h-5 w-5 mr-2 animate-spin" />
-              Processing...
-            </>
-          ) : (
-            <>
-              <Upload className="h-5 w-5 mr-2" />
-              Upload Receipt and Complete Payment
-            </>
-          )}
-        </button>
+        {paymentMethod === 'manual' && (
+          <div className="mb-6">
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Upload Receipt
+            </label>
+            <div className="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-gray-300 border-dashed rounded-md">
+              <div className="space-y-1 text-center">
+                {previewUrl ? (
+                  <div className="relative">
+                    <img
+                      src={previewUrl}
+                      alt="Receipt preview"
+                      className="mx-auto h-32 w-auto object-contain"
+                    />
+                    <button
+                      onClick={() => {
+                        setSelectedFile(null);
+                        setPreviewUrl(null);
+                      }}
+                      className="absolute top-0 right-0 p-1 bg-red-500 text-white rounded-full"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <ImageIcon className="mx-auto h-12 w-12 text-gray-400" />
+                    <div className="flex text-sm text-gray-600">
+                      <label
+                        htmlFor="file-upload"
+                        className="relative cursor-pointer bg-white rounded-md font-medium text-indigo-600 hover:text-indigo-500 focus-within:outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-indigo-500"
+                      >
+                        <span>Upload a file</span>
+                        <input
+                          id="file-upload"
+                          ref={fileInputRef}
+                          type="file"
+                          accept="image/*"
+                          onChange={handleFileSelect}
+                          className="sr-only"
+                        />
+                      </label>
+                      <p className="pl-1">or drag and drop</p>
+                    </div>
+                    <p className="text-xs text-gray-500">PNG, JPG up to 5MB</p>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
 
-        <button
-          onClick={onClose}
-          disabled={isProcessing}
-          className="w-full p-4 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-        >
-          Cancel
-        </button>
+        <div className="space-y-4">
+          {paymentMethod === 'manual' && (
+            <button
+              onClick={handleUploadReceipt}
+              disabled={!selectedFile || isProcessing || paymentAmount <= 0}
+              className="w-full p-4 bg-indigo-600 text-white rounded-lg flex items-center justify-center hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isProcessing ? (
+                <>
+                  <Loader2 className="h-5 w-5 mr-2 animate-spin" />
+                  Processing...
+                </>
+              ) : (
+                <>
+                  <Upload className="h-5 w-5 mr-2" />
+                  Upload Receipt and Complete Payment
+                </>
+              )}
+            </button>
+          )}
+
+          {paymentMethod === 'paystack' && (
+            <button
+              onClick={handlePaystackPayment}
+              disabled={isProcessing || paymentAmount <= 0}
+              className="w-full p-4 bg-green-600 text-white rounded-lg flex items-center justify-center hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isProcessing ? (
+                <>
+                  <Loader2 className="h-5 w-5 mr-2 animate-spin" />
+                  Processing...
+                </>
+              ) : (
+                <>
+                  <PaystackIcon className="h-5 w-5 mr-2" />
+                  Pay with Paystack
+                </>
+              )}
+            </button>
+          )}
+
+          {paymentMethod === 'test' && (
+            <button
+              onClick={handleTestPayment}
+              disabled={isProcessing || paymentAmount <= 0}
+              className="w-full p-4 bg-purple-600 text-white rounded-lg flex items-center justify-center hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isProcessing ? (
+                <>
+                  <Loader2 className="h-5 w-5 mr-2 animate-spin" />
+                  Processing...
+                </>
+              ) : (
+                <>
+                  <Banknote className="h-5 w-5 mr-2" />
+                  Complete Test Payment
+                </>
+              )}
+            </button>
+          )}
+
+          <button
+            onClick={onClose}
+            disabled={isProcessing}
+            className="w-full p-4 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+          >
+            Cancel
+          </button>
+        </div>
       </div>
     </div>
   );
