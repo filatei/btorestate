@@ -1,0 +1,91 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isUserDoc(userId) {
+      return request.auth.uid == userId;
+    }
+
+    function isEstateMember(estateId) {
+      let estateDoc = get(/databases/$(database)/documents/estates/$(estateId));
+      return estateDoc != null && 
+        (estateDoc.data.members.hasAny([request.auth.uid]) || 
+         estateDoc.data.admins.hasAny([request.auth.uid]));
+    }
+
+    function isEstateAdmin(estateId) {
+      let estateDoc = get(/databases/$(database)/documents/estates/$(estateId));
+      return estateDoc != null && estateDoc.data.admins.hasAny([request.auth.uid]);
+    }
+
+    // Users collection
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow write: if isUserDoc(userId);
+      
+      // Allow creating new user documents during sign up
+      allow create: if request.auth.uid == userId;
+    }
+
+    // User profiles
+    match /userProfiles/{userId} {
+      allow read: if isAuthenticated();
+      allow write: if isUserDoc(userId);
+    }
+
+    // Estates
+    match /estates/{estateId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated() && (
+        isEstateAdmin(estateId) || 
+        (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['members', 'invitedUsers']))
+      );
+      allow delete: if isAuthenticated() && resource.data.createdBy == request.auth.uid;
+
+      // Estate messages subcollection
+      match /messages/{messageId} {
+        allow read: if isAuthenticated() && isEstateMember(estateId);
+        allow create: if isAuthenticated() && isEstateMember(estateId);
+        allow update, delete: if isAuthenticated() && (
+          resource.data.userId == request.auth.uid || 
+          isEstateAdmin(estateId)
+        );
+      }
+    }
+
+    // Service charges
+    match /serviceCharges/{chargeId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && isEstateAdmin(resource.data.estateId);
+      allow update: if isAuthenticated() && (
+        isEstateMember(resource.data.estateId) || 
+        isEstateAdmin(resource.data.estateId)
+      );
+      allow delete: if isAuthenticated() && isEstateAdmin(resource.data.estateId);
+    }
+
+    // Notifications
+    match /notifications/{notificationId} {
+      allow read: if isAuthenticated() && request.auth.uid == resource.data.userId;
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated() && request.auth.uid == resource.data.userId;
+      allow delete: if isAuthenticated() && request.auth.uid == resource.data.userId;
+    }
+
+    // Presence
+    match /presence/{userId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // Info document for connection status
+    match /.info/connected {
+      allow read: if isAuthenticated();
+    }
+  }
+}

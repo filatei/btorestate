@@ -1,0 +1,22 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "status": {
+      "$uid": {
+        ".read": "auth != null",
+        ".write": "$uid === auth.uid"
+      }
+    },
+    "estates": {
+      "$estateId": {
+        "presence": {
+          "$uid": {
+            ".read": "auth != null",
+            ".write": "$uid === auth.uid"
+          }
+        }
+      }
+    }
+  }
+}

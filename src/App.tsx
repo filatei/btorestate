@@ -7,10 +7,12 @@ import Dashboard from './pages/Dashboard';
 import Profile from './pages/Profile';
 import Estates from './pages/Estates';
 import Admin from './pages/Admin';
+import Settings from './pages/Settings';
 import Payments from './pages/Payments';
 import Notifications from './pages/Notifications';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { EstateProvider } from './contexts/EstateContext';
+import { ThemeProvider } from './contexts/ThemeContext';
 import EstateSelector from './components/EstateSelector';
 
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
@@ -52,94 +54,107 @@ const PublicRoute = ({ children }: { children: React.ReactNode }) => {
 function App() {
   return (
     <AuthProvider>
-      <EstateProvider>
-        <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-          <div className="min-h-screen bg-gray-50">
-            <Routes>
-              <Route
-                path="/login"
-                element={
-                  <PublicRoute>
-                    <Login />
-                  </PublicRoute>
-                }
-              />
-              <Route
-                path="/dashboard"
-                element={
-                  <ProtectedRoute>
-                    <>
-                      <Navbar />
-                      <EstateSelector />
-                      <Dashboard />
-                    </>
-                  </ProtectedRoute>
-                }
-              />
-              <Route
-                path="/profile"
-                element={
-                  <ProtectedRoute>
-                    <>
-                      <Navbar />
-                      <Profile />
-                    </>
-                  </ProtectedRoute>
-                }
-              />
-              <Route
-                path="/estates/*"
-                element={
-                  <ProtectedRoute>
-                    <>
-                      <Navbar />
-                      <Estates />
-                    </>
-                  </ProtectedRoute>
-                }
-              />
-              <Route
-                path="/admin"
-                element={
-                  <ProtectedRoute>
-                    <>
-                      <Navbar />
-                      <EstateSelector />
-                      <Admin />
-                    </>
-                  </ProtectedRoute>
-                }
-              />
-              <Route
-                path="/payments"
-                element={
-                  <ProtectedRoute>
-                    <>
-                      <Navbar />
-                      <EstateSelector />
-                      <Payments />
-                    </>
-                  </ProtectedRoute>
-                }
-              />
-              <Route
-                path="/notifications"
-                element={
-                  <ProtectedRoute>
-                    <>
-                      <Navbar />
-                      <EstateSelector />
-                      <Notifications />
-                    </>
-                  </ProtectedRoute>
-                }
-              />
-              <Route path="/" element={<Navigate to="/dashboard" replace />} />
-            </Routes>
-            <Toaster position="top-right" />
-          </div>
-        </Router>
-      </EstateProvider>
+      <ThemeProvider>
+        <EstateProvider>
+          <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+            <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
+              <Routes>
+                <Route
+                  path="/login"
+                  element={
+                    <PublicRoute>
+                      <Login />
+                    </PublicRoute>
+                  }
+                />
+                <Route
+                  path="/dashboard"
+                  element={
+                    <ProtectedRoute>
+                      <>
+                        <Navbar />
+                        <EstateSelector />
+                        <Dashboard />
+                      </>
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/profile"
+                  element={
+                    <ProtectedRoute>
+                      <>
+                        <Navbar />
+                        <Profile />
+                      </>
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/estates/*"
+                  element={
+                    <ProtectedRoute>
+                      <>
+                        <Navbar />
+                        <Estates />
+                      </>
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/admin"
+                  element={
+                    <ProtectedRoute>
+                      <>
+                        <Navbar />
+                        <EstateSelector />
+                        <Admin />
+                      </>
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/settings"
+                  element={
+                    <ProtectedRoute>
+                      <>
+                        <Navbar />
+                        <Settings />
+                      </>
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/payments"
+                  element={
+                    <ProtectedRoute>
+                      <>
+                        <Navbar />
+                        <EstateSelector />
+                        <Payments />
+                      </>
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/notifications"
+                  element={
+                    <ProtectedRoute>
+                      <>
+                        <Navbar />
+                        <EstateSelector />
+                        <Notifications />
+                      </>
+                    </ProtectedRoute>
+                  }
+                />
+                <Route path="/" element={<Navigate to="/dashboard" replace />} />
+              </Routes>
+              <Toaster position="top-right" />
+            </div>
+          </Router>
+        </EstateProvider>
+      </ThemeProvider>
     </AuthProvider>
   );
 }

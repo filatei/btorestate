@@ -32,17 +32,7 @@ import {
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useNavigate } from 'react-router-dom';
-import {
-  useReactTable,
-  getCoreRowModel,
-  getSortedRowModel,
-  getFilteredRowModel,
-  getPaginationRowModel,
-  createColumnHelper,
-  flexRender,
-  SortingState,
-  ColumnDef
-} from '@tanstack/react-table';
+import { MembersModal } from '@/components/MembersModal';
 
 interface Estate {
   id: string;
@@ -75,8 +65,6 @@ const Estates = () => {
   const [selectedEstate, setSelectedEstate] = useState<Estate | null>(null);
   const [members, setMembers] = useState<Member[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [sorting, setSorting] = useState<SortingState>([]);
-  const [globalFilter, setGlobalFilter] = useState('');
   const [newEstate, setNewEstate] = useState({
     name: '',
     address: '',
@@ -107,8 +95,8 @@ const Estates = () => {
       const estatesData = snapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data(),
-        admins: doc.data().admins || [], // Ensure admins array exists
-        members: doc.data().members || [] // Ensure members array exists
+        admins: doc.data().admins || [],
+        members: doc.data().members || []
       })) as Estate[];
       setEstates(estatesData);
       setIsLoading(false);
@@ -229,7 +217,6 @@ const Estates = () => {
     e.preventDefault();
     if (!selectedEstate || !currentUser) return;
 
-    // Check if user is an admin
     if (!selectedEstate.admins?.includes(currentUser.uid)) {
       toast.error('Only admins can create service charges');
       return;
@@ -246,7 +233,6 @@ const Estates = () => {
 
       await addDoc(collection(db, 'serviceCharges'), charge);
 
-      // Create notifications for all estate members
       const notifications = selectedEstate.members.map(memberId => ({
         userId: memberId,
         type: 'payment',
@@ -271,82 +257,6 @@ const Estates = () => {
     }
   };
 
-  const columnHelper = createColumnHelper<Member>();
-
-  const columns = useMemo<ColumnDef<Member>[]>(() => [
-    columnHelper.accessor('displayName', {
-      header: 'Name',
-      cell: info => (
-        <div className="flex items-center">
-          <img
-            src={info.row.original.photoURL || `https://ui-avatars.com/api/?name=${info.getValue()}`}
-            alt={info.getValue()}
-            className="h-8 w-8 rounded-full mr-3"
-          />
-          <span>{info.getValue()}</span>
-        </div>
-      ),
-    }),
-    columnHelper.accessor('email', {
-      header: 'Email',
-    }),
-    columnHelper.accessor('isAdmin', {
-      header: 'Role',
-      cell: info => (
-        <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-          info.getValue()
-            ? 'bg-green-100 text-green-800'
-            : 'bg-gray-100 text-gray-800'
-        }`}>
-          {info.getValue() ? 'Admin' : 'Member'}
-        </span>
-      ),
-    }),
-    columnHelper.display({
-      id: 'actions',
-      header: 'Actions',
-      cell: props => (
-        selectedEstate?.createdBy === currentUser?.uid && props.row.original.id !== currentUser?.uid ? (
-          <button
-            onClick={() => toggleAdminStatus(props.row.original.id)}
-            className={`inline-flex items-center px-3 py-1 rounded-md text-sm ${
-              props.row.original.isAdmin
-                ? 'bg-red-100 text-red-800 hover:bg-red-200'
-                : 'bg-green-100 text-green-800 hover:bg-green-200'
-            }`}
-          >
-            {props.row.original.isAdmin ? (
-              <>
-                <ShieldOff className="h-4 w-4 mr-1" />
-                Remove Admin
-              </>
-            ) : (
-              <>
-                <Shield className="h-4 w-4 mr-1" />
-                Make Admin
-              </>
-            )}
-          </button>
-        ) : null
-      ),
-    }),
-  ], [currentUser, selectedEstate]);
-
-  const table = useReactTable({
-    data: members,
-    columns,
-    state: {
-      sorting,
-      globalFilter,
-    },
-    onSortingChange: setSorting,
-    onGlobalFilterChange: setGlobalFilter,
-    getCoreRowModel: getCoreRowModel(),
-    getSortedRowModel: getSortedRowModel(),
-    getFilteredRowModel: getFilteredRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
-  });
-
   if (!currentUser) {
     return null;
   }
@@ -361,7 +271,6 @@ const Estates = () => {
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-8">
-      {/* Header */}
       <div className="flex items-center justify-between mb-8">
         <div className="flex items-center">
           <Building2 className="h-8 w-8 text-indigo-600" />
@@ -376,7 +285,6 @@ const Estates = () => {
         </button>
       </div>
 
-      {/* Estates Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {estates.map(estate => {
           const isAdmin = estate.admins?.includes(currentUser.uid) || false;
@@ -461,7 +369,6 @@ const Estates = () => {
         </div>
       )}
 
-      {/* Create Estate Modal */}
       {showCreateModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-6 max-w-md w-full">
@@ -533,7 +440,6 @@ const Estates = () => {
         </div>
       )}
 
-      {/* Service Charge Modal */}
       {showChargeModal && selectedEstate && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-6 max-w-md w-full">
@@ -615,119 +521,14 @@ const Estates = () => {
         </div>
       )}
 
-      {/* Members Modal */}
-      {showMembersModal && selectedEstate && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 max-w-4xl w-full max-h-[90vh] overflow-auto">
-            <div className="flex justify-between items-center mb-6">
-              <h2 className="text-xl font-semibold">{selectedEstate.name} - Members</h2>
-              <button
-                onClick={() => setShowMembersModal(false)}
-                className="text-gray-500 hover:text-gray-700"
-              >
-                <X className="h-6 w-6" />
-              </button>
-            </div>
-
-            <div className="mb-4">
-              <div className="flex justify-between items-center">
-                <input
-                  type="text"
-                  value={globalFilter ?? ''}
-                  onChange={e => setGlobalFilter(e.target.value)}
-                  placeholder="Search members..."
-                  className="px-4 py-2 border border-gray-300 rounded-md w-64"
-                />
-              </div>
-            </div>
-
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
-                  {table.getHeaderGroups().map(headerGroup => (
-                    <tr key={headerGroup.id}>
-                      {headerGroup.headers.map(header => (
-                        <th
-                          key={header.id}
-                          className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer"
-                          onClick={header.column.getToggleSortingHandler()}
-                        >
-                          <div className="flex items-center">
-                            {flexRender(
-                              header.column.columnDef.header,
-                              header.getContext()
-                            )}
-                            {{
-                              asc: <ChevronUp className="ml-2 h-4 w-4" />,
-                              desc: <ChevronDown className="ml-2 h-4 w-4" />,
-                            }[header.column.getIsSorted() as string] ?? (
-                              <ChevronsUpDown className="ml-2 h-4 w-4 opacity-0 group-hover:opacity-100" />
-                            )}
-                          </div>
-                        </th>
-                      ))}
-                    </tr>
-                  ))}
-                </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                  {table.getRowModel().rows.map(row => (
-                    <tr key={row.id}>
-                      {row.getVisibleCells().map(cell => (
-                        <td key={cell.id} className="px-6 py-4 whitespace-nowrap">
-                          {flexRender(
-                            cell.column.columnDef.cell,
-                            cell.getContext()
-                          )}
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
-            <div className="mt-4 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => table.setPageIndex(0)}
-                  disabled={!table.getCanPreviousPage()}
-                  className="px-2 py-1 border rounded disabled:opacity-50"
-                >
-                  {'<<'}
-                </button>
-                <button
-                  onClick={() => table.previousPage()}
-                  disabled={!table.getCanPreviousPage()}
-                  className="px-2 py-1 border rounded disabled:opacity-50"
-                >
-                  {'<'}
-                </button>
-                <button
-                  onClick={() => table.nextPage()}
-                  disabled={!table.getCanNextPage()}
-                  className="px-2 py-1 border rounded disabled:opacity-50"
-                >
-                  {'>'}
-                </button>
-                <button
-                  onClick={() => table.setPageIndex(table.getPageCount() - 1)}
-                  disabled={!table.getCanNextPage()}
-                  className="px-2 py-1 border rounded disabled:opacity-50"
-                >
-                  {'>>'}
-                </button>
-              </div>
-              <span className="flex items-center gap-1">
-                <div>Page</div>
-                <strong>
-                  {table.getState().pagination.pageIndex + 1} of{' '}
-                  {table.getPageCount()}
-                </strong>
-              </span>
-            </div>
-          </div>
-        </div>
-      )}
+      <MembersModal
+        open={showMembersModal}
+        onOpenChange={setShowMembersModal}
+        members={members}
+        onToggleAdmin={toggleAdminStatus}
+        currentUserId={currentUser?.uid}
+        isCreator={selectedEstate?.createdBy === currentUser?.uid}
+      />
     </div>
   );
 };

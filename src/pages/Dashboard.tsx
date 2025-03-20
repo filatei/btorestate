@@ -1,14 +1,22 @@
 import React, { useState, useEffect } from 'react';
-import { collection, query, where, onSnapshot, doc, getDoc } from 'firebase/firestore';
-import { db } from '../lib/firebase';
+import { collection, query, where, onSnapshot, doc, getDoc, addDoc, serverTimestamp } from 'firebase/firestore';
+import { db, initializePresence, getOnlineUsersCount } from '../lib/firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { useEstate } from '../contexts/EstateContext';
-import { Home, Users, Bell, MessageSquare, CreditCard, Check } from 'lucide-react';
-import Chat from '../components/Chat';
-import Notifications from '../components/Notifications';
-import PaymentModal from '../components/PaymentModal';
-import { format } from 'date-fns';
+import { Home, Users, Bell, MessageSquare, CreditCard, Check, UserPlus, X, Mail } from 'lucide-react';
+import { Chat } from '@/components/Chat';
+import { Notifications } from '@/components/Notifications';
+import { OutstandingPayments } from '@/components/OutstandingPayments';
+import { format, isValid } from 'date-fns';
 import { useNavigate } from 'react-router-dom';
+import toast from 'react-hot-toast';
+import { Button } from '@/components/ui/button';
+import { Modal } from '@/components/ui/modal';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import { MembersModal } from '@/components/MembersModal';
 
 interface ServiceCharge {
   id: string;
@@ -28,16 +36,27 @@ interface ServiceCharge {
   }>;
 }
 
-const Dashboard = () => {
+interface Member {
+  id: string;
+  displayName: string;
+  email: string;
+  photoURL: string;
+  isAdmin: boolean;
+}
+
+export default function Dashboard() {
   const { currentUser } = useAuth();
   const { selectedEstate, isLoading: estateLoading } = useEstate();
   const navigate = useNavigate();
   const [serviceCharges, setServiceCharges] = useState<ServiceCharge[]>([]);
   const [paidCharges, setPaidCharges] = useState<ServiceCharge[]>([]);
   const [onlineUsers, setOnlineUsers] = useState<number>(0);
-  const [showPaymentModal, setShowPaymentModal] = useState(false);
-  const [selectedCharge, setSelectedCharge] = useState<ServiceCharge | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [showMembersModal, setShowMembersModal] = useState(false);
+  const [showInviteModal, setShowInviteModal] = useState(false);
+  const [members, setMembers] = useState<Member[]>([]);
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [isInviting, setIsInviting] = useState(false);
+  const [unreadNotifications, setUnreadNotifications] = useState(0);
 
   useEffect(() => {
     if (!currentUser || !selectedEstate) {
@@ -46,6 +65,14 @@ const Dashboard = () => {
       }
       return;
     }
+
+    // Initialize presence system
+    initializePresence(currentUser.uid, selectedEstate.id);
+
+    // Get online users count
+    const unsubscribePresence = getOnlineUsersCount(selectedEstate.id, (count) => {
+      setOnlineUsers(count);
+    });
 
     // Query service charges for the selected estate
     const chargesQuery = query(
@@ -68,53 +95,135 @@ const Dashboard = () => {
 
       setServiceCharges(pending);
       setPaidCharges(paid);
-      setIsLoading(false);
-    });
-
-    // Query online users for the selected estate
-    const presenceQuery = query(
-      collection(db, 'presence'),
-      where('estateId', '==', selectedEstate.id),
-      where('online', '==', true)
-    );
-
-    const unsubscribePresence = onSnapshot(presenceQuery, (snapshot) => {
-      setOnlineUsers(snapshot.size);
     });
 
     return () => {
       unsubscribeCharges();
-      unsubscribePresence();
+      if (unsubscribePresence) unsubscribePresence();
     };
   }, [currentUser, selectedEstate, estateLoading, navigate]);
 
-  const handlePaymentClick = (charge: ServiceCharge) => {
-    setSelectedCharge(charge);
-    setShowPaymentModal(true);
+  const handleViewMembers = async () => {
+    if (!selectedEstate || !selectedEstate.members || !selectedEstate.admins) return;
+
+    try {
+      const memberPromises = selectedEstate.members.map(async (userId) => {
+        const userDoc = await getDoc(doc(db, 'users', userId));
+        const userData = userDoc.data();
+        return {
+          id: userId,
+          displayName: userData?.displayName || 'Unknown User',
+          email: userData?.email || '',
+          photoURL: userData?.photoURL || '',
+          isAdmin: selectedEstate.admins.includes(userId)
+        };
+      });
+
+      const memberData = await Promise.all(memberPromises);
+      setMembers(memberData);
+      setShowMembersModal(true);
+    } catch (error) {
+      console.error('Error fetching members:', error);
+      toast.error('Failed to load members');
+    }
   };
 
-  const handlePaymentSuccess = () => {
-    setShowPaymentModal(false);
-    setSelectedCharge(null);
+  const handleInviteMember = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedEstate || !currentUser || isInviting) return;
+
+    // Check if user is an admin
+    if (!selectedEstate.admins?.includes(currentUser.uid)) {
+      toast.error('Only admins can invite members');
+      return;
+    }
+
+    setIsInviting(true);
+    try {
+      // Generate a unique invite token
+      const inviteToken = Math.random().toString(36).substring(2);
+
+      // Create notification for the invited user
+      await addDoc(collection(db, 'notifications'), {
+        type: 'estate',
+        actionType: 'invitation',
+        title: 'Estate Invitation',
+        message: `You have been invited to join ${selectedEstate.name}`,
+        inviteToken,
+        estateId: selectedEstate.id,
+        userId: inviteEmail,
+        read: false,
+        createdAt: serverTimestamp()
+      });
+
+      setInviteEmail('');
+      setShowInviteModal(false);
+      toast.success('Invitation sent successfully');
+    } catch (error) {
+      console.error('Error inviting member:', error);
+      toast.error('Failed to send invitation');
+    } finally {
+      setIsInviting(false);
+    }
   };
 
   const formatDate = (date: any) => {
     if (!date) return 'N/A';
     try {
-      const timestamp = date.seconds ? new Date(date.seconds * 1000) : new Date(date);
-      return format(timestamp, 'MMM d, yyyy');
+      const timestamp = date.toDate ? date.toDate() : new Date(date);
+      return isValid(timestamp) ? format(timestamp, 'MMM d, yyyy') : 'Invalid Date';
     } catch (error) {
+      console.error('Date formatting error:', error);
       return 'Invalid Date';
     }
   };
 
-  if (isLoading || estateLoading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
-      </div>
-    );
-  }
+  const PaymentHistory = ({ payments }: { payments: ServiceCharge[] }) => (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center">
+          <Check className="h-6 w-6 text-green-600 mr-2" />
+          Payment History
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="overflow-x-auto">
+          <table className="min-w-full divide-y divide-border">
+            <thead className="bg-muted">
+              <tr>
+                <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Title</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Amount</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Payment Date</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Method</th>
+              </tr>
+            </thead>
+            <tbody className="bg-card divide-y divide-border">
+              {payments.map(payment => (
+                <tr key={payment.id}>
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    <div className="text-sm font-medium">{payment.title}</div>
+                    <div className="text-sm text-muted-foreground">{payment.description}</div>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    <div className="text-sm">₦{payment.amount.toLocaleString()}</div>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    <div className="text-sm">{formatDate(payment.lastPaymentDate)}</div>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    <div className="text-sm">{payment.paymentMethod || 'N/A'}</div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {payments.length === 0 && (
+            <p className="text-center text-muted-foreground py-4">No payment history</p>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
 
   if (!selectedEstate) {
     return (
@@ -122,159 +231,178 @@ const Dashboard = () => {
         <div className="text-center">
           <h2 className="text-2xl font-semibold text-gray-900 mb-4">No Estate Selected</h2>
           <p className="text-gray-600 mb-4">Please select or create an estate to continue.</p>
-          <button
+          <Button
             onClick={() => navigate('/estates')}
-            className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700"
+            className="inline-flex items-center"
           >
             <Home className="h-5 w-5 mr-2" />
             Go to Estates
-          </button>
+          </Button>
         </div>
       </div>
     );
   }
 
+  const isAdmin = selectedEstate.admins?.includes(currentUser?.uid || '') || false;
+
   return (
-    <div className="max-w-7xl mx-auto px-4 py-8">
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        {/* Estate Info Section */}
-        <div className="bg-white rounded-lg shadow p-6">
-          <div className="flex items-center mb-4">
-            <Home className="h-6 w-6 text-indigo-600" />
-            <h2 className="ml-2 text-xl font-semibold">{selectedEstate.name}</h2>
-          </div>
-          <div className="space-y-2">
-            <p className="text-gray-600">{selectedEstate.address}</p>
-            <p className="text-sm text-gray-500">Type: {selectedEstate.type}</p>
-            <p className="text-sm text-gray-500">Members: {selectedEstate.memberCount}</p>
-            <p className="text-sm text-gray-500">
-              Created: {formatDate(selectedEstate.createdAt)}
-            </p>
-          </div>
-        </div>
-
-        {/* Payments Section */}
-        <div className="bg-white rounded-lg shadow p-6">
-          <div className="flex items-center mb-4">
-            <CreditCard className="h-6 w-6 text-indigo-600" />
-            <h2 className="ml-2 text-xl font-semibold">Outstanding Payments</h2>
-          </div>
-          {serviceCharges.length === 0 ? (
-            <p className="text-gray-500 text-center py-4">No pending payments</p>
-          ) : (
-            <div className="space-y-4">
-              {serviceCharges.map(charge => (
-                <div key={charge.id} className="p-4 border rounded-lg">
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <h3 className="font-medium text-lg">{charge.title}</h3>
-                      <p className="text-sm text-gray-500">{charge.description}</p>
-                      <p className="text-sm text-gray-500">Due: {formatDate(charge.dueDate)}</p>
-                      {charge.status === 'partial' && (
-                        <p className="text-sm text-orange-600">
-                          Paid: ₦{(charge.paidAmount || 0).toLocaleString()} / ₦{charge.amount.toLocaleString()}
-                        </p>
-                      )}
-                    </div>
-                    <div className="text-right">
-                      <p className="text-lg font-bold text-indigo-600">
-                        ₦{(charge.amount - (charge.paidAmount || 0)).toLocaleString()}
-                      </p>
-                      <button
-                        onClick={() => handlePaymentClick(charge)}
-                        className="mt-2 px-4 py-2 bg-indigo-600 text-white rounded-md text-sm hover:bg-indigo-700 transition-colors"
-                      >
-                        {charge.status === 'partial' ? 'Complete Payment' : 'Pay Now'}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Community Section */}
-        <div className="space-y-6">
-          <div className="bg-white rounded-lg shadow p-6">
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center">
-                <Users className="h-6 w-6 text-indigo-600" />
-                <h2 className="ml-2 text-xl font-semibold">Community</h2>
+    <div className="max-w-7xl mx-auto px-4 py-4">
+      {/* Estate Info Card - Always visible */}
+      <Card className="mb-4">
+        <CardHeader className="pb-2">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center">
+              <Home className="h-6 w-6 text-primary mr-2" />
+              <div>
+                <CardTitle className="text-xl">{selectedEstate.name}</CardTitle>
+                <p className="text-sm text-muted-foreground">{selectedEstate.address}</p>
               </div>
-              <div className="flex items-center">
-                <div className="h-2 w-2 bg-green-500 rounded-full"></div>
-                <span className="ml-2 text-sm text-gray-500">
-                  {onlineUsers} online
+            </div>
+            {isAdmin && (
+              <Button
+                onClick={() => setShowInviteModal(true)}
+                variant="ghost"
+                size="icon"
+                title="Invite Members"
+              >
+                <UserPlus className="h-5 w-5" />
+              </Button>
+            )}
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center justify-between text-sm">
+            <Button
+              onClick={handleViewMembers}
+              variant="link"
+              className="h-auto p-0"
+            >
+              <Users className="h-4 w-4 mr-2" />
+              {selectedEstate.memberCount} {selectedEstate.memberCount === 1 ? 'member' : 'members'}
+            </Button>
+            <div className="flex items-center text-muted-foreground">
+              <div className="h-2 w-2 bg-green-500 rounded-full mr-2"></div>
+              {onlineUsers} online
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Mobile Tabs */}
+      <Tabs defaultValue="payments" className="md:hidden">
+        <TabsList className="grid w-full grid-cols-3 mb-4">
+          <TabsTrigger value="payments">Payments</TabsTrigger>
+          <TabsTrigger value="chat">Chat</TabsTrigger>
+          <TabsTrigger value="notifications">
+            <span className="relative">
+              Notifications
+              {unreadNotifications > 0 && (
+                <span className="absolute -top-1 -right-1 h-4 w-4 bg-red-500 rounded-full flex items-center justify-center text-[10px] text-white">
+                  {unreadNotifications}
                 </span>
-              </div>
-            </div>
-            <Chat estateId={selectedEstate.id} />
+              )}
+            </span>
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="payments" className="space-y-4">
+          <OutstandingPayments payments={serviceCharges} />
+          <div className="mt-8">
+            <PaymentHistory payments={paidCharges} />
           </div>
-          
+        </TabsContent>
+
+        <TabsContent value="chat">
+          <Card>
+            <CardContent className="p-0">
+              <Chat estateId={selectedEstate.id} />
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="notifications">
+          <Notifications />
+        </TabsContent>
+      </Tabs>
+
+      {/* Desktop Layout */}
+      <div className="hidden md:grid md:grid-cols-3 gap-6">
+        <OutstandingPayments payments={serviceCharges} />
+        <div className="space-y-6">
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <CardTitle className="flex items-center">
+                  <Users className="h-6 w-6 text-primary mr-2" />
+                  Community
+                </CardTitle>
+              </div>
+            </CardHeader>
+            <CardContent className="p-0">
+              <Chat estateId={selectedEstate.id} />
+            </CardContent>
+          </Card>
           <Notifications />
         </div>
+        <PaymentHistory payments={paidCharges} />
       </div>
 
-      {/* Payment History */}
-      <div className="mt-8 bg-white rounded-lg shadow p-6">
-        <div className="flex items-center mb-4">
-          <Check className="h-6 w-6 text-green-600" />
-          <h2 className="ml-2 text-xl font-semibold">Payment History</h2>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Title</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Amount</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Payment Date</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Payment Method</th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {paidCharges.map(charge => (
-                <tr key={charge.id}>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm font-medium text-gray-900">{charge.title}</div>
-                    <div className="text-sm text-gray-500">{charge.description}</div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm text-gray-900">₦{charge.amount.toLocaleString()}</div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm text-gray-900">{formatDate(charge.lastPaymentDate)}</div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm text-gray-900">{charge.paymentMethod || 'N/A'}</div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {paidCharges.length === 0 && (
-            <p className="text-gray-500 text-center py-4">No payment history</p>
-          )}
-        </div>
-      </div>
+      {/* Members Modal */}
+      <MembersModal
+        open={showMembersModal}
+        onOpenChange={setShowMembersModal}
+        members={members}
+      />
 
-      {/* Payment Modal */}
-      {showPaymentModal && selectedCharge && (
-        <PaymentModal
-          isOpen={showPaymentModal}
-          onClose={() => setShowPaymentModal(false)}
-          charge={{
-            id: selectedCharge.id,
-            amount: selectedCharge.amount,
-            title: selectedCharge.title,
-            estateId: selectedCharge.estateId,
-            paidAmount: selectedCharge.paidAmount
-          }}
-          onPaymentSuccess={handlePaymentSuccess}
-        />
-      )}
+      {/* Invite Modal */}
+      <Modal
+        open={showInviteModal}
+        onOpenChange={setShowInviteModal}
+        title="Invite Member"
+      >
+        <form onSubmit={handleInviteMember}>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="email">Email Address</Label>
+              <Input
+                id="email"
+                type="email"
+                value={inviteEmail}
+                onChange={(e) => setInviteEmail(e.target.value)}
+                placeholder="Enter email address"
+                required
+              />
+            </div>
+
+            <div className="flex justify-end space-x-3">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setShowInviteModal(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                disabled={isInviting || !inviteEmail}
+                className="flex items-center"
+              >
+                {isInviting ? (
+                  <>
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                    Sending...
+                  </>
+                ) : (
+                  <>
+                    <Mail className="h-4 w-4 mr-2" />
+                    Send Invitation
+                  </>
+                )}
+              </Button>
+            </div>
+          </div>
+        </form>
+      </Modal>
     </div>
   );
-};
-
-export default Dashboard;
+}
