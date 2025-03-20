@@ -7,6 +7,8 @@ import { Home, Users, Bell, MessageSquare, CreditCard, Check, UserPlus, X, Mail 
 import { Chat } from '@/components/Chat';
 import { Notifications } from '@/components/Notifications';
 import { OutstandingPayments } from '@/components/OutstandingPayments';
+import { PaymentHistory } from '@/components/PaymentHistory';
+import { EstateDiscovery } from '@/components/EstateDiscovery';
 import { format, isValid } from 'date-fns';
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
@@ -42,6 +44,7 @@ interface Member {
   email: string;
   photoURL: string;
   isAdmin: boolean;
+  status: 'active' | 'passive';
 }
 
 export default function Dashboard() {
@@ -61,7 +64,7 @@ export default function Dashboard() {
   useEffect(() => {
     if (!currentUser || !selectedEstate) {
       if (!estateLoading) {
-        navigate('/estates');
+        return;
       }
       return;
     }
@@ -81,20 +84,13 @@ export default function Dashboard() {
     );
 
     const unsubscribeCharges = onSnapshot(chargesQuery, (snapshot) => {
-      const allCharges = snapshot.docs.map(doc => ({
+      const payments = snapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
       })) as ServiceCharge[];
 
-      const pending = allCharges.filter(charge => 
-        charge.status === 'pending' || charge.status === 'partial'
-      );
-      const paid = allCharges.filter(charge => 
-        charge.status === 'paid'
-      );
-
-      setServiceCharges(pending);
-      setPaidCharges(paid);
+      setServiceCharges(payments.filter(p => ['pending', 'partial', 'review'].includes(p.status)));
+      setPaidCharges(payments.filter(p => p.status === 'paid'));
     });
 
     return () => {
@@ -115,7 +111,8 @@ export default function Dashboard() {
           displayName: userData?.displayName || 'Unknown User',
           email: userData?.email || '',
           photoURL: userData?.photoURL || '',
-          isAdmin: selectedEstate.admins.includes(userId)
+          isAdmin: selectedEstate.admins.includes(userId),
+          status: 'active'
         };
       });
 
@@ -178,84 +175,44 @@ export default function Dashboard() {
     }
   };
 
-  const PaymentHistory = ({ payments }: { payments: ServiceCharge[] }) => (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center">
-          <Check className="h-6 w-6 text-green-600 mr-2" />
-          Payment History
-        </CardTitle>
-      </CardHeader>
-      <CardContent>
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-border">
-            <thead className="bg-muted">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Title</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Amount</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Payment Date</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Method</th>
-              </tr>
-            </thead>
-            <tbody className="bg-card divide-y divide-border">
-              {payments.map(payment => (
-                <tr key={payment.id}>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm font-medium">{payment.title}</div>
-                    <div className="text-sm text-muted-foreground">{payment.description}</div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm">₦{payment.amount.toLocaleString()}</div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm">{formatDate(payment.lastPaymentDate)}</div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm">{payment.paymentMethod || 'N/A'}</div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {payments.length === 0 && (
-            <p className="text-center text-muted-foreground py-4">No payment history</p>
-          )}
-        </div>
-      </CardContent>
-    </Card>
-  );
-
-  if (!selectedEstate) {
+  if (!selectedEstate && !estateLoading) {
     return (
       <div className="max-w-7xl mx-auto px-4 py-8">
-        <div className="text-center">
-          <h2 className="text-2xl font-semibold text-gray-900 mb-4">No Estate Selected</h2>
-          <p className="text-gray-600 mb-4">Please select or create an estate to continue.</p>
-          <Button
-            onClick={() => navigate('/estates')}
-            className="inline-flex items-center"
-          >
-            <Home className="h-5 w-5 mr-2" />
-            Go to Estates
-          </Button>
+        <div className="text-center mb-8">
+          <h2 className="text-2xl font-semibold mb-4">Welcome to Torestate</h2>
+          <p className="text-muted-foreground mb-8">
+            Get started by joining an existing estate or creating a new one
+          </p>
         </div>
+        <EstateDiscovery
+          userId={currentUser?.uid || ''}
+          onRequestSent={() => navigate('/estates')}
+        />
       </div>
     );
   }
 
-  const isAdmin = selectedEstate.admins?.includes(currentUser?.uid || '') || false;
+  if (estateLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+      </div>
+    );
+  }
+
+  const isAdmin = selectedEstate?.admins?.includes(currentUser?.uid || '') || false;
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-4">
       {/* Estate Info Card - Always visible */}
-      <Card className="mb-4">
+      <Card className="mb-4 dark:bg-gray-800">
         <CardHeader className="pb-2">
           <div className="flex items-center justify-between">
             <div className="flex items-center">
               <Home className="h-6 w-6 text-primary mr-2" />
               <div>
-                <CardTitle className="text-xl">{selectedEstate.name}</CardTitle>
-                <p className="text-sm text-muted-foreground">{selectedEstate.address}</p>
+                <CardTitle className="text-xl">{selectedEstate?.name}</CardTitle>
+                <p className="text-sm text-muted-foreground">{selectedEstate?.address}</p>
               </div>
             </div>
             {isAdmin && (
@@ -278,7 +235,7 @@ export default function Dashboard() {
               className="h-auto p-0"
             >
               <Users className="h-4 w-4 mr-2" />
-              {selectedEstate.memberCount} {selectedEstate.memberCount === 1 ? 'member' : 'members'}
+              {selectedEstate?.memberCount} {selectedEstate?.memberCount === 1 ? 'member' : 'members'}
             </Button>
             <div className="flex items-center text-muted-foreground">
               <div className="h-2 w-2 bg-green-500 rounded-full mr-2"></div>
@@ -315,7 +272,7 @@ export default function Dashboard() {
         <TabsContent value="chat">
           <Card>
             <CardContent className="p-0">
-              <Chat estateId={selectedEstate.id} />
+              <Chat estateId={selectedEstate?.id || ''} />
             </CardContent>
           </Card>
         </TabsContent>
@@ -339,7 +296,7 @@ export default function Dashboard() {
               </div>
             </CardHeader>
             <CardContent className="p-0">
-              <Chat estateId={selectedEstate.id} />
+              <Chat estateId={selectedEstate?.id || ''} />
             </CardContent>
           </Card>
           <Notifications />

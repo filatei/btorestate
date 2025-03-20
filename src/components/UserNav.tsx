@@ -68,6 +68,12 @@ export function UserNav({ user, onLogout }: UserNavProps) {
               <span>Profile</span>
             </Link>
           </DropdownMenuItem>
+          <DropdownMenuItem asChild>
+            <Link to="/settings" className="w-full cursor-pointer">
+              <User className="mr-2 h-4 w-4" />
+              <span>Settings</span>
+            </Link>
+          </DropdownMenuItem>
           <DropdownMenuItem onClick={handleLogout} className="text-destructive cursor-pointer">
             <LogOut className="mr-2 h-4 w-4" />
             <span>Log out</span>

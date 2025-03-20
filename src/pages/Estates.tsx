@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   collection,
   query,
@@ -33,6 +33,7 @@ import {
 import toast from 'react-hot-toast';
 import { useNavigate } from 'react-router-dom';
 import { MembersModal } from '@/components/MembersModal';
+import { EstateDiscovery } from '@/components/EstateDiscovery';
 
 interface Estate {
   id: string;
@@ -87,7 +88,8 @@ const Estates = () => {
       collection(db, 'estates'),
       or(
         where('members', 'array-contains', currentUser.uid),
-        where('invitedUsers', 'array-contains', currentUser.uid)
+        where('admins', 'array-contains', currentUser.uid),
+        where('pendingRequests', 'array-contains', currentUser.uid)
       )
     );
 
@@ -264,7 +266,111 @@ const Estates = () => {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+      </div>
+    );
+  }
+
+  if (estates.length === 0) {
+    return (
+      <div className="max-w-7xl mx-auto px-4 py-8">
+        <div className="flex items-center justify-between mb-8">
+          <div className="flex items-center">
+            <Building2 className="h-8 w-8 text-primary" />
+            <h1 className="ml-3 text-2xl font-semibold">Welcome to Torestate</h1>
+          </div>
+          <button
+            onClick={() => setShowCreateModal(true)}
+            className="flex items-center px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90"
+          >
+            <Plus className="h-5 w-5 mr-2" />
+            Create Estate
+          </button>
+        </div>
+
+        <div className="mb-8">
+          <p className="text-muted-foreground">
+            Get started by joining an existing estate or create your own
+          </p>
+        </div>
+
+        <EstateDiscovery
+          userId={currentUser.uid}
+          onRequestSent={() => {
+            toast.success('Join request sent successfully');
+          }}
+        />
+
+        {showCreateModal && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+            <div className="bg-background rounded-lg p-6 max-w-md w-full">
+              <div className="flex justify-between items-center mb-4">
+                <h2 className="text-xl font-semibold">Create New Estate</h2>
+                <button
+                  onClick={() => setShowCreateModal(false)}
+                  className="text-muted-foreground hover:text-foreground"
+                >
+                  <X className="h-6 w-6" />
+                </button>
+              </div>
+
+              <form onSubmit={handleCreateEstate}>
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium mb-1">Estate Name</label>
+                    <input
+                      type="text"
+                      value={newEstate.name}
+                      onChange={(e) => setNewEstate({ ...newEstate, name: e.target.value })}
+                      className="w-full px-3 py-2 rounded-md border bg-background"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium mb-1">Address</label>
+                    <input
+                      type="text"
+                      value={newEstate.address}
+                      onChange={(e) => setNewEstate({ ...newEstate, address: e.target.value })}
+                      className="w-full px-3 py-2 rounded-md border bg-background"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium mb-1">Type</label>
+                    <select
+                      value={newEstate.type}
+                      onChange={(e) => setNewEstate({ ...newEstate, type: e.target.value })}
+                      className="w-full px-3 py-2 rounded-md border bg-background"
+                    >
+                      <option value="residential">Residential</option>
+                      <option value="commercial">Commercial</option>
+                      <option value="mixed">Mixed Use</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="mt-6 flex justify-end space-x-3">
+                  <button
+                    type="button"
+                    onClick={() => setShowCreateModal(false)}
+                    className="px-4 py-2 border rounded-md hover:bg-accent"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90"
+                  >
+                    Create Estate
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
       </div>
     );
   }
@@ -273,12 +379,12 @@ const Estates = () => {
     <div className="max-w-7xl mx-auto px-4 py-8">
       <div className="flex items-center justify-between mb-8">
         <div className="flex items-center">
-          <Building2 className="h-8 w-8 text-indigo-600" />
-          <h1 className="ml-3 text-2xl font-semibold text-gray-900">My Estates</h1>
+          <Building2 className="h-8 w-8 text-primary" />
+          <h1 className="ml-3 text-2xl font-semibold">My Estates</h1>
         </div>
         <button
           onClick={() => setShowCreateModal(true)}
-          className="flex items-center px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
+          className="flex items-center px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90"
         >
           <Plus className="h-5 w-5 mr-2" />
           Create Estate
@@ -292,14 +398,14 @@ const Estates = () => {
           return (
             <div
               key={estate.id}
-              className="bg-white rounded-lg shadow-md p-6 hover:shadow-lg transition-shadow"
+              className="bg-card rounded-lg shadow-sm p-6 hover:shadow-md transition-shadow"
             >
               <div className="flex items-start justify-between mb-4">
                 <div>
-                  <h3 className="text-xl font-semibold text-gray-900">{estate.name}</h3>
-                  <p className="text-sm text-gray-500">{estate.address}</p>
+                  <h3 className="text-xl font-semibold">{estate.name}</h3>
+                  <p className="text-sm text-muted-foreground">{estate.address}</p>
                 </div>
-                <span className="px-2 py-1 text-xs font-medium rounded-full bg-indigo-100 text-indigo-800">
+                <span className="px-2 py-1 text-xs font-medium rounded-full bg-primary/10 text-primary">
                   {estate.type}
                 </span>
               </div>
@@ -307,12 +413,12 @@ const Estates = () => {
               <div className="space-y-3">
                 <button
                   onClick={() => handleViewMembers(estate)}
-                  className="flex items-center text-sm text-indigo-600 hover:text-indigo-800"
+                  className="flex items-center text-sm text-primary hover:text-primary/80"
                 >
                   <Users className="h-4 w-4 mr-2" />
                   {estate.memberCount} {estate.memberCount === 1 ? 'member' : 'members'}
                 </button>
-                <div className="flex items-center text-sm text-gray-500">
+                <div className="flex items-center text-sm text-muted-foreground">
                   <Clock className="h-4 w-4 mr-2" />
                   Created {new Date(estate.createdAt?.seconds * 1000).toLocaleDateString()}
                 </div>
@@ -321,7 +427,7 @@ const Estates = () => {
               <div className="mt-6 flex space-x-3">
                 <button
                   onClick={() => navigate('/dashboard')}
-                  className="flex-1 px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700"
+                  className="flex-1 px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90"
                 >
                   View Dashboard
                 </button>
@@ -332,17 +438,17 @@ const Estates = () => {
                         setSelectedEstate(estate);
                         setShowChargeModal(true);
                       }}
-                      className="px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50"
+                      className="px-4 py-2 border rounded-md hover:bg-accent"
                       title="Create Service Charge"
                     >
-                      <CreditCard className="h-5 w-5 text-gray-500" />
+                      <CreditCard className="h-5 w-5" />
                     </button>
                     <button
                       onClick={() => navigate('/admin')}
-                      className="px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50"
+                      className="px-4 py-2 border rounded-md hover:bg-accent"
                       title="Admin Panel"
                     >
-                      <Shield className="h-5 w-5 text-gray-500" />
+                      <Shield className="h-5 w-5" />
                     </button>
                   </>
                 )}
@@ -352,31 +458,24 @@ const Estates = () => {
         })}
       </div>
 
-      {estates.length === 0 && (
-        <div className="text-center py-12">
-          <Building2 className="mx-auto h-12 w-12 text-gray-400" />
-          <h3 className="mt-2 text-sm font-medium text-gray-900">No estates</h3>
-          <p className="mt-1 text-sm text-gray-500">Get started by creating a new estate.</p>
-          <div className="mt-6">
-            <button
-              onClick={() => setShowCreateModal(true)}
-              className="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700"
-            >
-              <Plus className="h-5 w-5 mr-2" />
-              Create Estate
-            </button>
-          </div>
-        </div>
-      )}
+      {/* Modals */}
+      <MembersModal
+        open={showMembersModal}
+        onOpenChange={setShowMembersModal}
+        members={members}
+        onToggleAdmin={toggleAdminStatus}
+        currentUserId={currentUser?.uid}
+        isCreator={selectedEstate?.createdBy === currentUser?.uid}
+      />
 
       {showCreateModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 max-w-md w-full">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-background rounded-lg p-6 max-w-md w-full">
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-xl font-semibold">Create New Estate</h2>
               <button
                 onClick={() => setShowCreateModal(false)}
-                className="text-gray-500 hover:text-gray-700"
+                className="text-muted-foreground hover:text-foreground"
               >
                 <X className="h-6 w-6" />
               </button>
@@ -385,33 +484,33 @@ const Estates = () => {
             <form onSubmit={handleCreateEstate}>
               <div className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Estate Name</label>
+                  <label className="block text-sm font-medium mb-1">Estate Name</label>
                   <input
                     type="text"
                     value={newEstate.name}
                     onChange={(e) => setNewEstate({ ...newEstate, name: e.target.value })}
-                    className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                    className="w-full px-3 py-2 rounded-md border bg-background"
                     required
                   />
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Address</label>
+                  <label className="block text-sm font-medium mb-1">Address</label>
                   <input
                     type="text"
                     value={newEstate.address}
                     onChange={(e) => setNewEstate({ ...newEstate, address: e.target.value })}
-                    className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                    className="w-full px-3 py-2 rounded-md border bg-background"
                     required
                   />
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Type</label>
+                  <label className="block text-sm font-medium mb-1">Type</label>
                   <select
                     value={newEstate.type}
                     onChange={(e) => setNewEstate({ ...newEstate, type: e.target.value })}
-                    className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                    className="w-full px-3 py-2 rounded-md border bg-background"
                   >
                     <option value="residential">Residential</option>
                     <option value="commercial">Commercial</option>
@@ -424,13 +523,13 @@ const Estates = () => {
                 <button
                   type="button"
                   onClick={() => setShowCreateModal(false)}
-                  className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50"
+                  className="px-4 py-2 border rounded-md hover:bg-accent"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-indigo-600 text-white rounded-md text-sm font-medium hover:bg-indigo-700"
+                  className="px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90"
                 >
                   Create Estate
                 </button>
@@ -441,13 +540,13 @@ const Estates = () => {
       )}
 
       {showChargeModal && selectedEstate && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 max-w-md w-full">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-background rounded-lg p-6 max-w-md w-full">
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-xl font-semibold">Create Service Charge</h2>
               <button
                 onClick={() => setShowChargeModal(false)}
-                className="text-gray-500 hover:text-gray-700"
+                className="text-muted-foreground hover:text-foreground"
               >
                 <X className="h-6 w-6" />
               </button>
@@ -456,45 +555,45 @@ const Estates = () => {
             <form onSubmit={handleCreateCharge}>
               <div className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Title</label>
+                  <label className="block text-sm font-medium mb-1">Title</label>
                   <input
                     type="text"
                     value={newCharge.title}
                     onChange={(e) => setNewCharge({ ...newCharge, title: e.target.value })}
-                    className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                    className="w-full px-3 py-2 rounded-md border bg-background"
                     required
                   />
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Amount (₦)</label>
+                  <label className="block text-sm font-medium mb-1">Amount (₦)</label>
                   <input
                     type="number"
                     value={newCharge.amount}
                     onChange={(e) => setNewCharge({ ...newCharge, amount: Number(e.target.value) })}
-                    className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                    className="w-full px-3 py-2 rounded-md border bg-background"
                     min="0"
                     required
                   />
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Due Date</label>
+                  <label className="block text-sm font-medium mb-1">Due Date</label>
                   <input
                     type="date"
                     value={newCharge.dueDate}
                     onChange={(e) => setNewCharge({ ...newCharge, dueDate: e.target.value })}
-                    className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                    className="w-full px-3 py-2 rounded-md border bg-background"
                     required
                   />
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Description</label>
+                  <label className="block text-sm font-medium mb-1">Description</label>
                   <textarea
                     value={newCharge.description}
                     onChange={(e) => setNewCharge({ ...newCharge, description: e.target.value })}
-                    className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                    className="w-full px-3 py-2 rounded-md border bg-background"
                     rows={3}
                     required
                   />
@@ -505,13 +604,13 @@ const Estates = () => {
                 <button
                   type="button"
                   onClick={() => setShowChargeModal(false)}
-                  className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50"
+                  className="px-4 py-2 border rounded-md hover:bg-accent"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-indigo-600 text-white rounded-md text-sm font-medium hover:bg-indigo-700"
+                  className="px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90"
                 >
                   Create Charge
                 </button>
@@ -520,15 +619,6 @@ const Estates = () => {
           </div>
         </div>
       )}
-
-      <MembersModal
-        open={showMembersModal}
-        onOpenChange={setShowMembersModal}
-        members={members}
-        onToggleAdmin={toggleAdminStatus}
-        currentUserId={currentUser?.uid}
-        isCreator={selectedEstate?.createdBy === currentUser?.uid}
-      />
     </div>
   );
 };

@@ -2,6 +2,8 @@ import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Building2, Plus } from 'lucide-react';
 import { useEstate } from '../contexts/EstateContext';
+import { Button } from '@/components/ui/button';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 const EstateSelector = () => {
   const { selectedEstate, availableEstates, setSelectedEstate } = useEstate();
@@ -13,45 +15,53 @@ const EstateSelector = () => {
 
   if (availableEstates.length === 0) {
     return (
-      <div className="flex items-center justify-between px-4 py-2 bg-white border-b">
-        <div className="text-sm text-gray-500">No estates available</div>
-        <button
+      <div className="flex items-center justify-between p-4 bg-background border-b border-border">
+        <div className="text-sm text-muted-foreground">No estates available</div>
+        <Button
           onClick={handleCreateEstate}
-          className="flex items-center px-3 py-1 text-sm text-indigo-600 hover:text-indigo-800"
+          variant="ghost"
+          size="sm"
+          className="text-primary hover:text-primary/80"
         >
           <Plus className="h-4 w-4 mr-1" />
           Create Estate
-        </button>
+        </Button>
       </div>
     );
   }
 
   return (
-    <div className="flex items-center justify-between px-4 py-2 bg-white border-b">
+    <div className="flex items-center justify-between mx-4 px-6 py-2 bg-background border-b border-border">
       <div className="flex items-center space-x-4">
-        <Building2 className="h-5 w-5 text-indigo-600" />
-        <select
+        <Building2 className="h-5 w-5 text-primary" />
+        <Select
           value={selectedEstate?.id || ''}
-          onChange={(e) => {
-            const estate = availableEstates.find(est => est.id === e.target.value);
+          onValueChange={(value) => {
+            const estate = availableEstates.find(est => est.id === value);
             if (estate) setSelectedEstate(estate);
           }}
-          className="form-select text-sm border-0 focus:ring-0 py-1 pl-2 pr-8"
         >
-          {availableEstates.map(estate => (
-            <option key={estate.id} value={estate.id}>
-              {estate.name}
-            </option>
-          ))}
-        </select>
+          <SelectTrigger className="w-[200px] border-0 bg-transparent focus:ring-0">
+            <SelectValue placeholder="Select an estate" />
+          </SelectTrigger>
+          <SelectContent>
+            {availableEstates.map(estate => (
+              <SelectItem key={estate.id} value={estate.id}>
+                {estate.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
-      <button
+      <Button
         onClick={handleCreateEstate}
-        className="flex items-center px-3 py-1 text-sm text-indigo-600 hover:text-indigo-800"
+        variant="ghost"
+        size="sm"
+        className="text-primary hover:text-primary/80"
       >
         <Plus className="h-4 w-4 mr-1" />
         Create Estate
-      </button>
+      </Button>
     </div>
   );
 };

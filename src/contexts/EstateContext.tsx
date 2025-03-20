@@ -46,12 +46,13 @@ export const EstateProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       return;
     }
 
-    // Query estates where user is a member or has been invited
+    // Query estates where user is a member, admin, or has been invited
     const estatesQuery = query(
       collection(db, 'estates'),
       or(
         where('members', 'array-contains', currentUser.uid),
-        where('invitedUsers', 'array-contains', currentUser.uid)
+        where('admins', 'array-contains', currentUser.uid),
+        where('pendingRequests', 'array-contains', currentUser.uid)
       )
     );
 
@@ -63,16 +64,22 @@ export const EstateProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
       setAvailableEstates(estates);
 
-      // If no estate is selected and there are available estates, select the first one
-      if (!selectedEstate && estates.length > 0) {
-        setSelectedEstate(estates[0]);
+      // Only set selected estate if:
+      // 1. No estate is currently selected AND there are available estates
+      // 2. Currently selected estate is no longer in available estates
+      if ((!selectedEstate && estates.length > 0) || 
+          (selectedEstate && !estates.find(e => e.id === selectedEstate.id))) {
+        setSelectedEstate(estates[0] || null);
       }
 
+      setIsLoading(false);
+    }, (error) => {
+      console.error('Error fetching estates:', error);
       setIsLoading(false);
     });
 
     return () => unsubscribe();
-  }, [currentUser]);
+  }, [currentUser, selectedEstate]);
 
   // Reset selected estate when user logs out
   useEffect(() => {

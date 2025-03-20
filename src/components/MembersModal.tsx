@@ -1,8 +1,10 @@
 import React from 'react';
 import { Modal } from '@/components/ui/modal';
-import { Shield, ShieldOff } from 'lucide-react';
+import { Shield, ShieldOff, LogOut } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
+import { Badge } from '@/components/ui/badge';
+import toast from 'react-hot-toast';
 
 interface Member {
   id: string;
@@ -10,6 +12,7 @@ interface Member {
   email: string;
   photoURL: string;
   isAdmin: boolean;
+  status: 'active' | 'passive';
 }
 
 interface MembersModalProps {
@@ -17,6 +20,7 @@ interface MembersModalProps {
   onOpenChange: (open: boolean) => void;
   members: Member[];
   onToggleAdmin?: (memberId: string) => void;
+  onUpdateStatus?: (memberId: string, status: 'active' | 'passive') => void;
   currentUserId?: string;
   isCreator?: boolean;
 }
@@ -26,9 +30,21 @@ export function MembersModal({
   onOpenChange,
   members,
   onToggleAdmin,
+  onUpdateStatus,
   currentUserId,
   isCreator
 }: MembersModalProps) {
+  const handleStatusChange = async (memberId: string, status: 'active' | 'passive') => {
+    if (onUpdateStatus) {
+      try {
+        await onUpdateStatus(memberId, status);
+        toast.success(`Member status updated to ${status}`);
+      } catch (error) {
+        toast.error('Failed to update member status');
+      }
+    }
+  };
+
   return (
     <Modal
       open={open}
@@ -42,7 +58,8 @@ export function MembersModal({
               <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Member</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Email</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Role</th>
-              {isCreator && <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Actions</th>}
+              <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Status</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
@@ -68,35 +85,48 @@ export function MembersModal({
                   <div className="text-sm text-muted-foreground">{member.email}</div>
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
-                  <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                    member.isAdmin
-                      ? 'bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-100'
-                      : 'bg-secondary text-secondary-foreground'
-                  }`}>
+                  <Badge variant={member.isAdmin ? 'default' : 'secondary'}>
                     {member.isAdmin ? 'Admin' : 'Member'}
-                  </span>
+                  </Badge>
                 </td>
-                {isCreator && onToggleAdmin && member.id !== currentUserId && (
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <Button
-                      onClick={() => onToggleAdmin(member.id)}
-                      variant={member.isAdmin ? 'destructive' : 'default'}
-                      size="sm"
-                    >
-                      {member.isAdmin ? (
-                        <>
-                          <ShieldOff className="h-4 w-4 mr-1" />
-                          Remove Admin
-                        </>
-                      ) : (
-                        <>
-                          <Shield className="h-4 w-4 mr-1" />
-                          Make Admin
-                        </>
-                      )}
-                    </Button>
-                  </td>
-                )}
+                <td className="px-6 py-4 whitespace-nowrap">
+                  <Badge variant={member.status === 'active' ? 'success' : 'warning'}>
+                    {member.status}
+                  </Badge>
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap">
+                  <div className="flex gap-2">
+                    {isCreator && onToggleAdmin && member.id !== currentUserId && (
+                      <Button
+                        onClick={() => onToggleAdmin(member.id)}
+                        variant={member.isAdmin ? 'destructive' : 'default'}
+                        size="sm"
+                      >
+                        {member.isAdmin ? (
+                          <>
+                            <ShieldOff className="h-4 w-4 mr-1" />
+                            Remove Admin
+                          </>
+                        ) : (
+                          <>
+                            <Shield className="h-4 w-4 mr-1" />
+                            Make Admin
+                          </>
+                        )}
+                      </Button>
+                    )}
+                    {member.id === currentUserId && member.status === 'active' && (
+                      <Button
+                        onClick={() => handleStatusChange(member.id, 'passive')}
+                        variant="outline"
+                        size="sm"
+                      >
+                        <LogOut className="h-4 w-4 mr-1" />
+                        Leave Estate
+                      </Button>
+                    )}
+                  </div>
+                </td>
               </tr>
             ))}
           </tbody>
